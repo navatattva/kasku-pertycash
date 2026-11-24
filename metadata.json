@@ -1,0 +1,6 @@
+{
+  "name": "KasKu — Sistem Petty Cash & Approval Berjenjang",
+  "description": "Sistem manajemen petty cash real-time dengan approval berjenjang, monitoring saldo departemen, laporan pengeluaran bulanan otomatis, dan integrasi notifikasi WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
