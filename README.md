@@ -4,22 +4,22 @@ Aplikasi manajemen kas kecil (*petty cash*), kasbon operasional, tutup kas haria
 
 ---
 
-## Persiapan Deploy di Dokploy (Nixpacks)
+## Persiapan Deploy di Dokploy (Dockerfile)
 
-Repositori ini sudah dikonfigurasi dengan `nixpacks.toml` agar langsung siap build & jalan di **Dokploy (Nixpacks)** setelah di-push ke Git.
+Repositori ini menggunakan multi-stage **Dockerfile** berbasis `node:22-bookworm-slim` agar seluruh dependensi framework (`React 19`, `Vite 8`, `Tailwind CSS v4`, `Express 4`, `TypeScript`) ter-install bersih oleh Node.js/npm dan berjalan optimal di produksi.
 
-### 1. Ringkasan Konfigurasi Nixpacks (`nixpacks.toml`)
-- **Runtime**: Node.js 22 (`nodejs_22`, mendukung eksekusi native `node server.ts`)
-- **Install**: `npm install --no-audit --no-fund --include=dev`
-- **Build**: `npm run build` (menghasilkan frontend SPA ke `dist/`)
-- **Start**: `NODE_ENV=production node server.ts`
-- **Port**: `3000` (atau mengikuti `PORT` dari Dokploy)
+### 1. Ringkasan Build & Runtime Docker
+- **Base Image**: `node:22-bookworm-slim` (glibc-compatible untuk native bindings Vite 8 & Tailwind v4, serta dukungan native `node server.ts` di Node 22)
+- **Stage `builder`**: `npm install --no-audit --no-fund` + `npm run build`
+- **Stage `runner`**: `npm install --omit=dev` + `node server.ts`
+- **Port**: `3000` (atau mengikuti env `PORT`)
 - **Healthcheck**: `GET /api/health` (`200 OK`)
 
 ### 2. Pengaturan di Dashboard Dokploy
-1. Buat **Application** baru di Dokploy dan hubungkan ke repository Git Anda.
-2. Pada **Build Type**, pilih **Nixpacks** (otomatis membaca `nixpacks.toml`).
-3. Pada tab **Environment**, tambahkan minimal variabel berikut:
+1. Push kode ini ke repository Git Anda.
+2. Buat **Application** baru di Dokploy -> pilih sumber repository Git Anda.
+3. Pada **Build Type**, pilih **Dockerfile** (Build Path: `./Dockerfile`, Context Path: `.`).
+4. Pada tab **Environment**, isi minimal variabel berikut:
    ```env
    NODE_ENV=production
    PORT=3000
@@ -31,11 +31,11 @@ Repositori ini sudah dikonfigurasi dengan `nixpacks.toml` agar langsung siap bui
    - `ADMIN_BOOTSTRAP_PASSCODE`: kode pengaman tambahan saat setup akun Direktur pertama kali.
    - `ALLOWED_ORIGINS`: daftar domain tambahan (pisahkan dengan koma) jika diakses melalui beberapa domain.
    - `WHATSAPP_API_TOKEN`: token gateway WhatsApp sisi server jika mengaktifkan pengiriman otomatis.
-4. Pada tab **Advanced -> Volumes / Mounts**, tambahkan **Volume Mount** agar database JSON, jurnal audit SHA-256, dan foto nota tidak hilang saat redeploy:
+5. Pada tab **Advanced -> Volumes / Mounts**, tambahkan **Volume Mount** agar database JSON, jurnal audit SHA-256, dan foto nota tidak hilang saat redeploy:
    - **Mount Path (Container)**: `/app/data`
    - (Sesuaikan dengan nilai `DATA_DIR=/app/data`).
-5. Pada tab **Domains**, arahkan domain/subdomain Anda ke Container Port `3000`.
-6. Klik **Deploy**.
+6. Pada tab **Domains**, arahkan domain/subdomain Anda ke Container Port `3000`.
+7. Klik **Deploy**.
 
 ### 3. Aktivasi Pertama Kali (First-Run Setup)
 - Setelah aplikasi live, buka URL aplikasi Anda.

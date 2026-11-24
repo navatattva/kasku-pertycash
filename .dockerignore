@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+coverage/
+data/
+.git/
+.gitignore
+.playwright-cli/
+.aistudio/
+.DS_Store
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+walkthrough.md
