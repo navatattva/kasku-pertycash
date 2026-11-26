@@ -26,6 +26,14 @@ import type {
 } from '../src/types/pettycash.ts';
 import { hasPermission, isPeriodClosed } from '../src/utils/pettycashLogic.ts';
 import { verifyActivityLogsIntegrity } from './activityLogUtils.ts';
+import {
+  checkPostgresHealth,
+  closePostgresPool,
+  flushPostgresWrites,
+  getPostgresConnectionConfig,
+  initPostgresDatabase,
+  schedulePostgresPersist,
+} from './postgresStore.ts';
 import { createSeedDatabase, CURRENT_SCHEMA_VERSION } from './seed.ts';
 
 export interface AuthUserRecord {
@@ -90,7 +98,15 @@ export const DATA_DIR = process.env.DATA_DIR?.trim()
 export const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 export const DB_FILE = path.join(DATA_DIR, 'pettycash-db.json');
 
+export function isPostgresStorageEnabled(): boolean {
+  return getPostgresConnectionConfig().enabled;
+}
+
 export function writeDbAtomically(db: PersistedDatabase = memoryDb): void {
+  if (isPostgresStorageEnabled()) {
+    schedulePostgresPersist(db);
+    return;
+  }
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
@@ -99,13 +115,15 @@ export function writeDbAtomically(db: PersistedDatabase = memoryDb): void {
   fs.renameSync(tmpFile, DB_FILE);
 }
 
-function ensureDbLoaded(): PersistedDatabase {
+function readLocalFileDatabase(): PersistedDatabase {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(DB_FILE)) {
     const seed = createSeedDatabase();
-    writeDbAtomically(seed);
+    const tmpFile = `${DB_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(seed, null, 2), 'utf8');
+    fs.renameSync(tmpFile, DB_FILE);
     return seed;
   }
   try {
@@ -142,12 +160,55 @@ function ensureDbLoaded(): PersistedDatabase {
     return parsed;
   } catch {
     const seed = createSeedDatabase();
-    writeDbAtomically(seed);
+    const tmpFile = `${DB_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(seed, null, 2), 'utf8');
+    fs.renameSync(tmpFile, DB_FILE);
     return seed;
   }
 }
 
+function ensureDbLoaded(): PersistedDatabase {
+  if (isPostgresStorageEnabled()) {
+    return createSeedDatabase();
+  }
+  return readLocalFileDatabase();
+}
+
 export const memoryDb: PersistedDatabase = ensureDbLoaded();
+
+export async function initDatabase(): Promise<'postgres' | 'file'> {
+  if (isPostgresStorageEnabled()) {
+    const loaded = await initPostgresDatabase();
+    Object.assign(memoryDb, loaded);
+    return 'postgres';
+  }
+  const localDb = readLocalFileDatabase();
+  Object.assign(memoryDb, localDb);
+  return 'file';
+}
+
+export async function flushDatabaseWrites(): Promise<void> {
+  if (isPostgresStorageEnabled()) {
+    await flushPostgresWrites();
+  }
+}
+
+export async function checkDatabaseHealth(): Promise<{
+  ok: boolean;
+  storage: 'postgres' | 'file';
+}> {
+  if (isPostgresStorageEnabled()) {
+    const status = await checkPostgresHealth();
+    return { ok: status.ok, storage: 'postgres' };
+  }
+  return { ok: true, storage: 'file' };
+}
+
+export async function closeDatabaseConnections(): Promise<void> {
+  if (isPostgresStorageEnabled()) {
+    await closePostgresPool();
+  }
+}
 
 export function checkLockedPeriodError(dateOrMonthIso: string): string | null {
   const locked = isPeriodClosed(dateOrMonthIso, memoryDb.closedPeriods);

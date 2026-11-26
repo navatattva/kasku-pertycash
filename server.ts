@@ -2,7 +2,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { getSnapshot } from './server/db.ts';
+import {
+  checkDatabaseHealth,
+  closeDatabaseConnections,
+  getSnapshot,
+  initDatabase,
+} from './server/db.ts';
 import { authenticateRequest } from './server/middleware/authMiddleware.ts';
 import { generalApiRateLimiterMiddleware } from './server/middleware/rateLimiter.ts';
 import { securityHeadersMiddleware } from './server/middleware/securityHeaders.ts';
@@ -18,7 +23,8 @@ import { registerRequestRoutes } from './server/routes/requestsRoutes.ts';
 import { registerUploadRoutes } from './server/routes/uploadsRoutes.ts';
 import { handleSseStream } from './server/sse.ts';
 
-dotenv.config();
+dotenv.config({ path: '.env.local' });
+dotenv.config({ path: '.env' });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +35,10 @@ export interface CreateAppOptions {
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
+  dotenv.config({ path: '.env.local' });
+  dotenv.config({ path: '.env' });
+  const storageMode = await initDatabase();
+
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -37,8 +47,13 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.use('/api', generalApiRateLimiterMiddleware);
   app.use(express.json({ limit: '6mb' }));
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, time: new Date().toISOString() });
+  app.get('/api/health', async (_req, res) => {
+    const dbHealth = await checkDatabaseHealth();
+    res.status(dbHealth.ok ? 200 : 503).json({
+      ok: dbHealth.ok,
+      storage: dbHealth.storage || storageMode,
+      time: new Date().toISOString(),
+    });
   });
 
   registerAuthRoutes(app);
@@ -125,7 +140,8 @@ export async function startServer() {
 
   const shutdown = (signal: string) => {
     console.log(`[KasKu Kargo] Menerima sinyal ${signal}, menutup server...`);
-    server.close(() => {
+    server.close(async () => {
+      await closeDatabaseConnections().catch(() => {});
       process.exit(0);
     });
     setTimeout(() => process.exit(0), 5000).unref();
