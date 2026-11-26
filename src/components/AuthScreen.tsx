@@ -5,6 +5,7 @@ import {
   EyeOff,
   KeyRound,
   Lock,
+  LogIn,
   ShieldCheck,
   UserPlus,
 } from 'lucide-react';
@@ -45,8 +46,33 @@ export function AuthScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [modeOverride, setModeOverride] = useState<'setup' | 'login' | null>(
+    () => {
+      if (typeof window !== 'undefined' && window.location.hash === '#login') {
+        return 'login';
+      }
+      return null;
+    }
+  );
 
-  const isSetupMode = Boolean(authStatus?.needsInitialSetup);
+  const canSetup = Boolean(authStatus?.needsInitialSetup);
+  const isSetupMode = canSetup && modeOverride !== 'login';
+
+  const switchAuthMode = (targetMode: 'setup' | 'login') => {
+    setModeOverride(targetMode);
+    setError('');
+    setPassword('');
+    setConfirmPassword('');
+    setPasscode('');
+    if (typeof window !== 'undefined') {
+      const base = `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState(
+        null,
+        '',
+        targetMode === 'login' ? `${base}#login` : base
+      );
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,6 +322,43 @@ export function AuthScreen({
                   : 'Masuk ke KasKu Kargo'}
               </span>
             </button>
+
+            {canSetup && (
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+                <span className="text-slate-500">
+                  {isSetupMode
+                    ? 'Sudah memiliki akun terdaftar?'
+                    : 'Belum ada akun admin awal?'}
+                </span>
+                {isSetupMode ? (
+                  <a
+                    href="#login"
+                    data-testid="init-admin-login-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      switchAuthMode('login');
+                    }}
+                    className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1"
+                  >
+                    <LogIn className="h-3.5 w-3.5" />
+                    <span>Masuk ke Login</span>
+                  </a>
+                ) : (
+                  <a
+                    href="#setup"
+                    data-testid="login-to-init-admin-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      switchAuthMode('setup');
+                    }}
+                    className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                    <span>Aktivasi Admin Pertama</span>
+                  </a>
+                )}
+              </div>
+            )}
 
             <div className="rounded-lg bg-slate-50 border border-slate-200 px-3.5 py-2.5 flex items-start gap-2 text-[11px] text-slate-600">
               <ShieldCheck className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />

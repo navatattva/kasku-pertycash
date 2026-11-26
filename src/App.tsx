@@ -14,6 +14,7 @@ import {
   getFirstPermittedTab,
   hasPermission,
 } from './utils/pettycashLogic.ts';
+import { parseKasbonVerificationParams } from './utils/qrVerification.ts';
 import { AuthScreen } from './components/AuthScreen.tsx';
 import { Sidebar, type NavTab } from './components/Sidebar.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
@@ -98,11 +99,25 @@ export default function App() {
     decision: 'approve' | 'reject';
   } | null>(null);
 
+  const [pendingVerifyKasbonId, setPendingVerifyKasbonId] = useState<string | null>(
+    () => {
+      if (typeof window === 'undefined') return null;
+      return parseKasbonVerificationParams(window.location.search)
+        .verifyKasbonId;
+    }
+  );
+  const pendingVerifyRef = useRef<string | null>(pendingVerifyKasbonId);
+  pendingVerifyRef.current = pendingVerifyKasbonId;
+
   const lastSyncedTabRef = useRef<string>('');
 
   const handleLoginSuccessRestoreTab = useCallback(
     (lastVisitedTab: string, permissions: Parameters<typeof getFirstPermittedTab>[0]) => {
-      const target = getFirstPermittedTab(permissions, lastVisitedTab as NavTab);
+      const requestedTab =
+        pendingVerifyRef.current && canAccessTab(permissions, 'down-payments')
+          ? 'down-payments'
+          : (lastVisitedTab as NavTab);
+      const target = getFirstPermittedTab(permissions, requestedTab);
       lastSyncedTabRef.current = target;
       setActiveTab(target);
       setNewReqModalOpen(false);
@@ -186,6 +201,14 @@ export default function App() {
   // Keep activeTab valid against live RBAC permissions & enabled optional modules
   useEffect(() => {
     if (!isAuthenticated || !state) return;
+    if (
+      pendingVerifyKasbonId &&
+      canAccessTab(userPermissions, 'down-payments') &&
+      activeTab !== 'down-payments'
+    ) {
+      setActiveTab('down-payments');
+      return;
+    }
     const validTab = getFirstPermittedTab(userPermissions, activeTab, {
       fraudGuard: state.fraudGuard.enabled,
       forecastModule: state.forecastModule.enabled,
@@ -195,7 +218,13 @@ export default function App() {
     if (validTab !== activeTab) {
       setActiveTab(validTab);
     }
-  }, [isAuthenticated, state, userPermissions, activeTab]);
+  }, [
+    isAuthenticated,
+    state,
+    userPermissions,
+    activeTab,
+    pendingVerifyKasbonId,
+  ]);
 
   // Persist user's last visited tab to server whenever it changes post-login
   useEffect(() => {
@@ -204,6 +233,18 @@ export default function App() {
     lastSyncedTabRef.current = activeTab;
     syncLastVisitedTab(activeTab);
   }, [isAuthenticated, state, activeTab, syncLastVisitedTab]);
+
+  const handleConsumeVerifyKasbon = useCallback(() => {
+    setPendingVerifyKasbonId(null);
+    if (typeof window !== 'undefined' && window.location.search) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('verifyKasbon');
+      url.searchParams.delete('ref');
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, []);
 
   const handleSelectTab = useCallback(
     (nextTab: NavTab) => {
@@ -427,6 +468,8 @@ export default function App() {
                     currentUser={currentUser}
                     currentRoleName={currentRole.name}
                     serverTime={state.serverTime}
+                    initialVerifyDpId={pendingVerifyKasbonId}
+                    onConsumeVerifyDp={handleConsumeVerifyKasbon}
                     onCreateDownPayment={actions.createDownPayment}
                     onDecideDownPayment={actions.decideDownPayment}
                     onSettleDownPayment={actions.settleDownPayment}

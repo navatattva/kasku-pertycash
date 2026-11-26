@@ -1277,7 +1277,7 @@ test('Activity log hash chain records actor, exact timestamp, and detects tamper
   assert.ok(csv.includes(second.entryHash));
 });
 
-import { WIKI_ARTICLES, WIKI_CATEGORIES } from '../data/wikiArticles';
+import { WIKI_ARTICLES, WIKI_CATEGORIES } from '../constants/wikiArticles.ts';
 
 test('Wiki articles cover all core and optional features with valid structure', () => {
   assert.ok(WIKI_ARTICLES.length >= 15);

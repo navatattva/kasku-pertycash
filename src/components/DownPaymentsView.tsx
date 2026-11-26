@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Banknote,
@@ -6,6 +6,7 @@ import {
   Clock,
   Image as ImageIcon,
   Plus,
+  QrCode,
   Receipt,
   ShieldAlert,
   XCircle,
@@ -50,6 +51,8 @@ interface DownPaymentsViewProps {
   currentUser: AuthUserPublic;
   currentRoleName: string;
   serverTime: string;
+  initialVerifyDpId?: string | null;
+  onConsumeVerifyDp?: () => void;
   onCreateDownPayment: CreateDownPaymentFn;
   onDecideDownPayment: DecideDownPaymentFn;
   onSettleDownPayment: SettleDownPaymentFn;
@@ -67,6 +70,8 @@ export function DownPaymentsView({
   currentUser,
   currentRoleName,
   serverTime,
+  initialVerifyDpId = null,
+  onConsumeVerifyDp,
   onCreateDownPayment,
   onDecideDownPayment,
   onSettleDownPayment,
@@ -91,11 +96,28 @@ export function DownPaymentsView({
     decision: 'approve' | 'reject';
   } | null>(null);
   const [previewDp, setPreviewDp] = useState<DownPaymentRecord | null>(null);
+  const [openedFromQrLink, setOpenedFromQrLink] = useState(false);
+  const [missingVerifyId, setMissingVerifyId] = useState<string | null>(null);
 
   const deptMap = useMemo(
     () => new Map(metrics.map((m) => [m.department.id, m.department])),
     [metrics]
   );
+
+  useEffect(() => {
+    if (!initialVerifyDpId) return;
+    const match = downPayments.find(
+      (dp) => dp.id === initialVerifyDpId || dp.dpNumber === initialVerifyDpId
+    );
+    if (match) {
+      setStatusFilter('all');
+      setPreviewDp(match);
+      setOpenedFromQrLink(true);
+      setMissingVerifyId(null);
+    } else {
+      setMissingVerifyId(initialVerifyDpId);
+    }
+  }, [initialVerifyDpId, downPayments]);
 
   // KPI computations
   const openDps = downPayments.filter((dp) => dp.status === 'open');
@@ -155,6 +177,28 @@ export function DownPaymentsView({
             Pengajuan, persetujuan, dan realisasi kasbon baru diblokir hingga
             kunci periode dibuka oleh otorisator di menu Tutup Kas &amp; Periode.
           </span>
+        </div>
+      )}
+
+      {missingVerifyId && (
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-900 flex items-center justify-between gap-3"
+        >
+          <span>
+            Tautan verifikasi QR tidak menemukan data kasbon dengan ID{' '}
+            <strong className="font-mono">{missingVerifyId}</strong>.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setMissingVerifyId(null);
+              onConsumeVerifyDp?.();
+            }}
+            className="font-semibold text-rose-700 hover:underline shrink-0"
+          >
+            Tutup
+          </button>
         </div>
       )}
 
@@ -403,60 +447,65 @@ export function DownPaymentsView({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        {dp.status === 'pending_director' && canDecideDp ? (
-                          <div className="inline-flex items-center gap-1.5">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          {dp.status === 'pending_director' && canDecideDp ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDecisionTarget({ dp, decision: 'approve' })
+                                }
+                                aria-label={`Setujui ${dp.dpNumber}`}
+                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <span>Setujui</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDecisionTarget({ dp, decision: 'reject' })
+                                }
+                                aria-label={`Tolak ${dp.dpNumber}`}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                              >
+                                <XCircle className="h-3.5 w-3.5" />
+                                <span>Tolak</span>
+                              </button>
+                            </>
+                          ) : dp.status === 'open' && canSettleDp ? (
                             <button
                               type="button"
-                              onClick={() =>
-                                setDecisionTarget({ dp, decision: 'approve' })
-                              }
-                              aria-label={`Setujui ${dp.dpNumber}`}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+                              onClick={() => setSettleTarget(dp)}
+                              aria-label={`Realisasi Struk ${dp.dpNumber}`}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
                             >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              <span>Setujui</span>
+                              <Receipt className="h-3.5 w-3.5" />
+                              <span>Realisasi Struk</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setDecisionTarget({ dp, decision: 'reject' })
-                              }
-                              aria-label={`Tolak ${dp.dpNumber}`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                            >
-                              <XCircle className="h-3.5 w-3.5" />
-                              <span>Tolak</span>
-                            </button>
-                          </div>
-                        ) : dp.status === 'pending_director' ? (
-                          <span className="text-slate-400">
-                            Menunggu Otorisasi
-                          </span>
-                        ) : dp.status === 'open' && canSettleDp ? (
+                          ) : null}
+
                           <button
                             type="button"
-                            onClick={() => setSettleTarget(dp)}
-                            aria-label={`Realisasi Struk ${dp.dpNumber}`}
-                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
+                            onClick={() => {
+                              setOpenedFromQrLink(false);
+                              setPreviewDp(dp);
+                            }}
+                            aria-label={`QR Verifikasi & Detail ${dp.dpNumber}`}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
-                            <Receipt className="h-3.5 w-3.5" />
-                            <span>Realisasi Struk</span>
+                            {dp.settlement?.receiptImageUrl ? (
+                              <ImageIcon className="h-3.5 w-3.5 text-emerald-700" />
+                            ) : (
+                              <QrCode className="h-3.5 w-3.5 text-emerald-700" />
+                            )}
+                            <span>
+                              {dp.settlement?.receiptImageUrl
+                                ? 'Struk & QR'
+                                : 'QR & Detail'}
+                            </span>
                           </button>
-                        ) : dp.status === 'open' ? (
-                          <span className="text-slate-400">Open (Read-Only)</span>
-                        ) : dp.settlement?.receiptImageUrl ? (
-                          <button
-                            type="button"
-                            onClick={() => setPreviewDp(dp)}
-                            aria-label={`Lihat Struk ${dp.dpNumber}`}
-                            className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:underline"
-                          >
-                            <ImageIcon className="h-3.5 w-3.5" />
-                            <span>Lihat Struk</span>
-                          </button>
-                        ) : (
-                          <span className="text-slate-400">Selesai</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -498,7 +547,20 @@ export function DownPaymentsView({
         onSubmit={onSettleDownPayment}
       />
 
-      <KasbonReceiptModal dp={previewDp} onClose={() => setPreviewDp(null)} />
+      <KasbonReceiptModal
+        dp={previewDp}
+        departmentName={
+          previewDp
+            ? deptMap.get(previewDp.departmentId)?.name ?? previewDp.departmentId
+            : undefined
+        }
+        openedFromQrLink={openedFromQrLink}
+        onClose={() => {
+          setPreviewDp(null);
+          setOpenedFromQrLink(false);
+          onConsumeVerifyDp?.();
+        }}
+      />
     </div>
   );
 }

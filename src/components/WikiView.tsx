@@ -16,7 +16,7 @@ import {
   type OptionalModuleKey,
   type WikiArticle,
   type WikiCategoryId,
-} from '../data/wikiArticles.ts';
+} from '../constants/wikiArticles.ts';
 import type { NavTab } from './Sidebar.tsx';
 
 interface WikiViewProps {
