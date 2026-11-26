@@ -513,6 +513,7 @@ export default function App() {
                     onCreateDailyClosing={actions.createDailyClosing}
                     onClosePeriod={actions.closePeriod}
                     onReopenPeriod={actions.reopenPeriod}
+                    onNavigateTab={setActiveTab}
                   />
                 )}
 

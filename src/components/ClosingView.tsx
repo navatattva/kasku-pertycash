@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarCheck2,
   CheckCircle2,
+  ExternalLink,
   Lock,
+  PanelRightClose,
+  PanelRightOpen,
   ShieldCheck,
   Unlock,
   X,
@@ -19,6 +23,7 @@ import type {
   PettyCashRequest,
   TopUpRecord,
 } from '../types/pettycash.ts';
+import type { NavTab } from './Sidebar.tsx';
 import {
   formatDateTime,
   formatIDR,
@@ -26,6 +31,7 @@ import {
 } from '../utils/formatters.ts';
 import {
   calculateDailyClosingSummary,
+  canAccessTab,
   generateMonthlyReport,
   hasPermission,
   isPeriodClosed,
@@ -55,6 +61,7 @@ interface ClosingViewProps {
   onReopenPeriod: (payload: {
     monthKey: string;
   }) => Promise<{ ok: boolean; error?: string }>;
+  onNavigateTab?: (tab: NavTab) => void;
 }
 
 export function ClosingView({
@@ -72,6 +79,7 @@ export function ClosingView({
   onCreateDailyClosing,
   onClosePeriod,
   onReopenPeriod,
+  onNavigateTab,
 }: ClosingViewProps) {
   const activeDepts = useMemo(
     () => departments.filter((d) => d.active !== false),
@@ -102,6 +110,46 @@ export function ClosingView({
   const [lockNote, setLockNote] = useState('');
   const [lockError, setLockError] = useState('');
   const [submittingLock, setSubmittingLock] = useState(false);
+  const [showPendingSidePanel, setShowPendingSidePanel] = useState(false);
+
+  const deptMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of departments) {
+      map.set(d.id, `${d.code} — ${d.name}`);
+    }
+    return map;
+  }, [departments]);
+
+  const pendingForTargetMonth = useMemo(() => {
+    if (!lockModalTarget || lockModalTarget.action !== 'lock') {
+      return {
+        pendingRequests: [] as PettyCashRequest[],
+        pendingKasbons: [] as DownPaymentRecord[],
+        totalCount: 0,
+        totalAmount: 0,
+      };
+    }
+    const pendingRequests = requests.filter(
+      (r) =>
+        r.status === 'pending_director' &&
+        r.createdAt.startsWith(lockModalTarget.monthKey)
+    );
+    const pendingKasbons = downPayments.filter(
+      (dp) =>
+        dp.status === 'pending_director' &&
+        dp.createdAt.startsWith(lockModalTarget.monthKey)
+    );
+    const totalAmount =
+      pendingRequests.reduce((sum, r) => sum + r.amount, 0) +
+      pendingKasbons.reduce((sum, dp) => sum + dp.requestedAmount, 0);
+
+    return {
+      pendingRequests,
+      pendingKasbons,
+      totalCount: pendingRequests.length + pendingKasbons.length,
+      totalAmount,
+    };
+  }, [lockModalTarget, requests, downPayments]);
 
   const liveDailySummary = useMemo(
     () =>
@@ -181,6 +229,20 @@ export function ClosingView({
     setClosingNote('');
   }
 
+  function openLockModal(target: { monthKey: string; action: 'lock' | 'unlock' }) {
+    setLockError('');
+    setLockNote('');
+    setShowPendingSidePanel(false);
+    setLockModalTarget(target);
+  }
+
+  function closeLockModal() {
+    setLockError('');
+    setLockNote('');
+    setShowPendingSidePanel(false);
+    setLockModalTarget(null);
+  }
+
   async function handleConfirmLockModal(e: React.FormEvent) {
     e.preventDefault();
     if (!lockModalTarget) return;
@@ -200,8 +262,7 @@ export function ClosingView({
       setLockError(res.error || 'Gagal memperbarui status kunci periode.');
       return;
     }
-    setLockNote('');
-    setLockModalTarget(null);
+    closeLockModal();
   }
 
   return (
@@ -614,13 +675,12 @@ export function ClosingView({
                         canReopenPeriod ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              setLockError('');
-                              setLockModalTarget({
+                            onClick={() =>
+                              openLockModal({
                                 monthKey: row.monthKey,
                                 action: 'unlock',
-                              });
-                            }}
+                              })
+                            }
                             aria-label={`Buka Kunci Periode ${row.monthKey}`}
                             className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
@@ -633,13 +693,12 @@ export function ClosingView({
                       ) : canLockPeriod ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            setLockError('');
-                            setLockModalTarget({
+                          onClick={() =>
+                            openLockModal({
                               monthKey: row.monthKey,
                               action: 'lock',
-                            });
-                          }}
+                            })
+                          }
                           aria-label={`Tutup Buku Periode ${row.monthKey}`}
                           className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800"
                         >
@@ -658,122 +717,390 @@ export function ClosingView({
         </div>
       </section>
 
-      {lockModalTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="period-lock-modal-title"
-        >
-          <div className="w-full max-w-md rounded-xl bg-white border border-slate-200 p-6 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3
-                id="period-lock-modal-title"
-                className="text-base font-semibold text-slate-900"
-              >
-                {lockModalTarget.action === 'lock'
-                  ? `Tutup Buku & Kunci Periode ${formatMonthLabel(
-                      lockModalTarget.monthKey
-                    )}`
-                  : `Buka Kunci Periode ${formatMonthLabel(
-                      lockModalTarget.monthKey
-                    )}`}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setLockModalTarget(null)}
-                aria-label="Tutup dialog kunci periode"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {lockModalTarget && (() => {
+        const isSidePanelExpanded =
+          lockModalTarget.action === 'lock' && showPendingSidePanel;
+        const canOpenApprovals =
+          Boolean(onNavigateTab) && canAccessTab(userPermissions, 'approvals');
+        const canOpenDownPayments =
+          Boolean(onNavigateTab) &&
+          canAccessTab(userPermissions, 'down-payments');
 
-            <form onSubmit={handleConfirmLockModal} className="mt-4 space-y-4">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs">
-                <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
-                  <span>Otorisator Terverifikasi</span>
-                </p>
-                <p className="mt-0.5 font-semibold text-slate-900">
-                  {currentUser.name}{' '}
-                  <span className="font-normal text-slate-600">
-                    · {currentRoleName}
-                  </span>
-                </p>
-              </div>
-
-              {lockModalTarget.action === 'lock' ? (
-                <>
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
-                    <span>
-                      Setelah periode <strong>{lockModalTarget.monthKey}</strong>{' '}
-                      dikunci, sistem menolak pengajuan, top-up, tutup kas, dan
-                      perubahan transaksi di periode tersebut.
-                    </span>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="lock-note"
-                      className="block text-xs font-semibold text-slate-700 mb-1"
-                    >
-                      Catatan Tutup Buku (Opsional)
-                    </label>
-                    <input
-                      id="lock-note"
-                      type="text"
-                      value={lockNote}
-                      onChange={(e) => setLockNote(e.target.value)}
-                      placeholder="Contoh: Sudah dicek dan sesuai rekening koran"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
-                  <span>
-                    Membuka kunci periode{' '}
-                    <strong className="font-mono">
-                      {lockModalTarget.monthKey}
-                    </strong>{' '}
-                    mengizinkan pencatatan koreksi atau penyesuaian di bulan
-                    tersebut. Kunci kembali setelah koreksi selesai.
-                  </span>
-                </div>
-              )}
-
-              {lockError && (
-                <p className="text-xs font-medium text-rose-700" role="alert">
-                  {lockError}
-                </p>
-              )}
-
-              <div className="pt-2 flex items-center justify-end gap-2">
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="period-lock-modal-title"
+          >
+            <div
+              data-testid="period-lock-modal-card"
+              className={`w-full ${
+                isSidePanelExpanded ? 'max-w-4xl' : 'max-w-md'
+              } rounded-xl bg-white border border-slate-200 shadow-xl transition-all duration-200 overflow-hidden max-h-[90vh] flex flex-col`}
+            >
+              <div className="px-6 pt-5 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                <h3
+                  id="period-lock-modal-title"
+                  className="text-base font-semibold text-slate-900"
+                >
+                  {lockModalTarget.action === 'lock'
+                    ? `Tutup Buku & Kunci Periode ${formatMonthLabel(
+                        lockModalTarget.monthKey
+                      )}`
+                    : `Buka Kunci Periode ${formatMonthLabel(
+                        lockModalTarget.monthKey
+                      )}`}
+                </h3>
                 <button
                   type="button"
-                  onClick={() => setLockModalTarget(null)}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={closeLockModal}
+                  aria-label="Tutup dialog kunci periode"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
                 >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingLock}
-                  className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
-                >
-                  {submittingLock
-                    ? 'Memproses...'
-                    : lockModalTarget.action === 'lock'
-                    ? 'Kunci Periode Sekarang'
-                    : 'Konfirmasi Buka Kunci'}
+                  <X className="h-5 w-5" />
                 </button>
               </div>
-            </form>
+
+              <div
+                className={`flex-1 min-h-0 overflow-y-auto lg:overflow-hidden ${
+                  isSidePanelExpanded
+                    ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] divide-y lg:divide-y-0 lg:divide-x divide-slate-200'
+                    : ''
+                }`}
+              >
+                <form
+                  onSubmit={handleConfirmLockModal}
+                  className="p-6 space-y-4 lg:overflow-y-auto"
+                >
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs">
+                    <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
+                      <span>Otorisator Terverifikasi</span>
+                    </p>
+                    <p className="mt-0.5 font-semibold text-slate-900">
+                      {currentUser.name}{' '}
+                      <span className="font-normal text-slate-600">
+                        · {currentRoleName}
+                      </span>
+                    </p>
+                  </div>
+
+                  {lockModalTarget.action === 'lock' ? (
+                    <>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+                          <span>
+                            Setelah periode{' '}
+                            <strong>{lockModalTarget.monthKey}</strong> dikunci,
+                            sistem menolak pengajuan, top-up, tutup kas, dan
+                            perubahan transaksi di periode tersebut.
+                          </span>
+                        </div>
+
+                        {pendingForTargetMonth.totalCount > 0 && !lockError && (
+                          <div className="pt-1.5 border-t border-amber-200/80 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-medium text-amber-900">
+                              Masih ada {pendingForTargetMonth.totalCount}{' '}
+                              pengajuan pending.
+                            </span>
+                            <button
+                              type="button"
+                              data-testid="toggle-closing-pending-panel-hint"
+                              onClick={() =>
+                                setShowPendingSidePanel((prev) => !prev)
+                              }
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 hover:text-amber-950 underline underline-offset-2 shrink-0"
+                            >
+                              {isSidePanelExpanded ? (
+                                <>
+                                  <PanelRightClose className="h-3.5 w-3.5" />
+                                  <span>Tutup daftar</span>
+                                </>
+                              ) : (
+                                <>
+                                  <PanelRightOpen className="h-3.5 w-3.5" />
+                                  <span>Lihat daftar</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="lock-note"
+                          className="block text-xs font-semibold text-slate-700 mb-1"
+                        >
+                          Catatan Tutup Buku (Opsional)
+                        </label>
+                        <input
+                          id="lock-note"
+                          type="text"
+                          value={lockNote}
+                          onChange={(e) => setLockNote(e.target.value)}
+                          placeholder="Contoh: Sudah dicek dan sesuai rekening koran"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 flex items-start gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
+                      <span>
+                        Membuka kunci periode{' '}
+                        <strong className="font-mono">
+                          {lockModalTarget.monthKey}
+                        </strong>{' '}
+                        mengizinkan pencatatan koreksi atau penyesuaian di bulan
+                        tersebut. Kunci kembali setelah koreksi selesai.
+                      </span>
+                    </div>
+                  )}
+
+                  {lockError && (
+                    <div
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800 space-y-2"
+                      role="alert"
+                    >
+                      <p className="font-medium leading-relaxed">{lockError}</p>
+                      {lockModalTarget.action === 'lock' &&
+                        pendingForTargetMonth.totalCount > 0 && (
+                          <button
+                            type="button"
+                            data-testid="toggle-closing-pending-panel"
+                            onClick={() =>
+                              setShowPendingSidePanel((prev) => !prev)
+                            }
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-800 hover:text-rose-950 underline underline-offset-2"
+                          >
+                            {isSidePanelExpanded ? (
+                              <>
+                                <PanelRightClose className="h-3.5 w-3.5" />
+                                <span>
+                                  Sembunyikan daftar belum tertutup (
+                                  {pendingForTargetMonth.totalCount})
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <PanelRightOpen className="h-3.5 w-3.5" />
+                                <span>
+                                  Lihat daftar yang belum tertutup (
+                                  {pendingForTargetMonth.totalCount})
+                                </span>
+                                <ArrowRight className="h-3.5 w-3.5" />
+                              </>
+                            )}
+                          </button>
+                        )}
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeLockModal}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submittingLock}
+                      className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                    >
+                      {submittingLock
+                        ? 'Memproses...'
+                        : lockModalTarget.action === 'lock'
+                        ? 'Kunci Periode Sekarang'
+                        : 'Konfirmasi Buka Kunci'}
+                    </button>
+                  </div>
+                </form>
+
+                {isSidePanelExpanded && (
+                  <aside
+                    data-testid="closing-pending-side-panel"
+                    aria-label={`Daftar data belum tertutup periode ${lockModalTarget.monthKey}`}
+                    className="bg-slate-50/70 p-5 flex flex-col min-h-0"
+                  >
+                    <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 shrink-0">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">
+                          Data Belum Tertutup · {lockModalTarget.monthKey}
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {pendingForTargetMonth.pendingRequests.length} petty
+                          cash &amp; {pendingForTargetMonth.pendingKasbons.length}{' '}
+                          kasbon menunggu persetujuan · Total{' '}
+                          <span className="font-mono font-semibold text-slate-700">
+                            {formatIDR(pendingForTargetMonth.totalAmount)}
+                          </span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPendingSidePanel(false)}
+                        aria-label="Tutup panel daftar"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                      >
+                        <PanelRightClose className="h-3.5 w-3.5" />
+                        <span>Ciutkan</span>
+                      </button>
+                    </div>
+
+                    {(canOpenApprovals || canOpenDownPayments) &&
+                      pendingForTargetMonth.totalCount > 0 && (
+                        <div className="py-2.5 border-b border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
+                          {pendingForTargetMonth.pendingRequests.length > 0 &&
+                            canOpenApprovals && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  closeLockModal();
+                                  onNavigateTab?.('approvals');
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-800"
+                              >
+                                <span>
+                                  Proses di Approval Direktur (
+                                  {pendingForTargetMonth.pendingRequests.length})
+                                </span>
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
+                            )}
+                          {pendingForTargetMonth.pendingKasbons.length > 0 &&
+                            canOpenDownPayments && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  closeLockModal();
+                                  onNavigateTab?.('down-payments');
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                <span>
+                                  Proses di Kasbon (
+                                  {pendingForTargetMonth.pendingKasbons.length})
+                                </span>
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
+                            )}
+                        </div>
+                      )}
+
+                    <div className="mt-3 flex-1 overflow-y-auto space-y-2.5 pr-1 max-h-[52vh]">
+                      {pendingForTargetMonth.totalCount === 0 ? (
+                        <p className="py-8 text-center text-xs text-slate-500">
+                          Semua pengajuan dan kasbon di periode ini sudah
+                          diproses.
+                        </p>
+                      ) : (
+                        <>
+                          {pendingForTargetMonth.pendingRequests.map((req) => (
+                            <div
+                              key={req.id}
+                              className="rounded-lg border border-slate-200 bg-white p-3 text-xs space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-semibold text-slate-900">
+                                  {req.requestNumber}
+                                </span>
+                                <span className="text-[11px] font-semibold text-amber-700">
+                                  Petty Cash · Menunggu Approval
+                                </span>
+                              </div>
+                              <p className="font-semibold text-slate-900 leading-snug">
+                                {req.title}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {deptMap.get(req.departmentId) ??
+                                  req.departmentId}{' '}
+                                · Oleh {req.requesterName} · {req.category}
+                              </p>
+                              <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-2">
+                                <span className="font-mono text-[11px] text-slate-500">
+                                  {formatDateTime(req.createdAt)}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-mono tabular-nums font-semibold text-slate-900">
+                                    {formatIDR(req.amount)}
+                                  </span>
+                                  {canOpenApprovals && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        closeLockModal();
+                                        onNavigateTab?.('approvals');
+                                      }}
+                                      className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 underline underline-offset-2"
+                                    >
+                                      Buka
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {pendingForTargetMonth.pendingKasbons.map((dp) => (
+                            <div
+                              key={dp.id}
+                              className="rounded-lg border border-amber-200 bg-white p-3 text-xs space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-semibold text-slate-900">
+                                  {dp.dpNumber}
+                                </span>
+                                <span className="text-[11px] font-semibold text-amber-700">
+                                  Kasbon · Menunggu Approval
+                                </span>
+                              </div>
+                              <p className="font-semibold text-slate-900 leading-snug">
+                                {dp.title}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {deptMap.get(dp.departmentId) ??
+                                  dp.departmentId}{' '}
+                                · Pemohon {dp.requesterName} · {dp.category}
+                              </p>
+                              <div className="pt-1 border-t border-slate-100 flex items-center justify-between gap-2">
+                                <span className="font-mono text-[11px] text-slate-500">
+                                  {formatDateTime(dp.createdAt)}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-mono tabular-nums font-semibold text-slate-900">
+                                    {formatIDR(dp.requestedAmount)}
+                                  </span>
+                                  {canOpenDownPayments && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        closeLockModal();
+                                        onNavigateTab?.('down-payments');
+                                      }}
+                                      className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 underline underline-offset-2"
+                                    >
+                                      Buka
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </aside>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

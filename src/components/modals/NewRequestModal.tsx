@@ -268,7 +268,7 @@ export function NewRequestModal({
       aria-modal="true"
       aria-labelledby="new-request-title"
     >
-      <div className="w-full max-w-lg rounded-xl bg-white border border-slate-200 shadow-xl max-h-[92vh] overflow-y-auto">
+      <div className="w-full max-w-3xl rounded-xl bg-white border border-slate-200 shadow-xl max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <div>
             <h2
@@ -293,7 +293,7 @@ export function NewRequestModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
                 htmlFor="req-employee"
@@ -356,7 +356,7 @@ export function NewRequestModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
                 htmlFor="req-category"
@@ -475,7 +475,7 @@ export function NewRequestModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
                 htmlFor="req-vehicle"
